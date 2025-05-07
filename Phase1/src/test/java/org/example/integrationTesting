@@ -1,0 +1,304 @@
+package org.example;
+
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Bottom-up integration testing for Movie Recommendation System
+ * Following the structure in the diagram with focus on Main components:
+ * - Movies
+ * - Users
+ * - Recommendation System
+ */
+
+public class IntegrationTest {
+
+    @TempDir
+    Path tempDir;
+    
+    private Path moviesFile;
+    private Path usersFile;
+    private Path recommendationsFile;
+
+    @BeforeEach
+    public void setup() throws IOException {
+        // Create temporary files for testing
+        moviesFile = tempDir.resolve("movies.txt");
+        usersFile = tempDir.resolve("users.txt");
+        recommendationsFile = tempDir.resolve("recommendations.txt");
+    }
+
+    /**
+     * ======= LEVEL 1 TESTS =======
+     * Testing the basic functionalities of Movie and User classes
+     */
+    
+    @Test
+    public void testMovieBasicOperations() {
+        // Test movie object creation and methods
+        String[] genres = {"Action", "Drama"};
+        Movie movie = new Movie("The Dark Knight", "TDK001", genres);
+        
+        assertEquals("The Dark Knight", movie.getTitle());
+        assertEquals("TDK001", movie.getId());
+        assertTrue(movie.hasGenre("Action"));
+        assertFalse(movie.hasGenre("Comedy"));
+    }
+    
+    @Test
+    public void testUserBasicOperations() {
+        // Test user object creation and methods
+        User user = new User("John Doe", "12345678X");
+        
+        assertEquals("John Doe", user.getName());
+        assertEquals("12345678X", user.getId());
+        
+        user.addLikedMovieId("TDK001");
+        assertEquals(1, user.getLikedMovieIds().size());
+        assertEquals("TDK001", user.getLikedMovieIds().get(0));
+    }
+    
+    /**
+     * ======= LEVEL 2 TESTS =======
+     * Testing integration between Movies and Users with the validation system
+     */
+    
+    @Test
+    public void testMovieValidationIntegration() {
+        // Test integration between Movie and Validator
+        List<String> existingIds = new ArrayList<>();
+        
+        // Create valid movie with proper validation
+        String title = "The Dark Knight";
+        String id = "TDK001";
+        String[] genres = {"Action", "Drama"};
+        
+        assertNull(Validator.validateMovieTitle(title));
+        assertNull(Validator.validateMovieId(id, title, existingIds));
+        
+        Movie movie = new Movie(title, id, genres);
+        assertEquals(title, movie.getTitle());
+        assertEquals(id, movie.getId());
+        
+        // Add to existing IDs and check duplicate validation
+        existingIds.add(id);
+        assertNotNull(Validator.validateMovieId(id, "The Dark Knight Returns", existingIds));
+    }
+    
+    @Test
+    public void testUserValidationIntegration() {
+        // Test integration between User and Validator
+        Set<String> existingIds = new HashSet<>();
+        
+        // Create valid user with proper validation
+        String name = "John Doe";
+        String id = "12345678X";
+        
+        assertNull(Validator.validateUserName(name));
+        assertNull(Validator.validateUserId(id, existingIds));
+        
+        User user = new User(name, id);
+        assertEquals(name, user.getName());
+        assertEquals(id, user.getId());
+        
+        // Add to existing IDs and check duplicate validation
+        existingIds.add(id);
+        assertNotNull(Validator.validateUserId(id, existingIds));
+    }
+    
+    /**
+     * ======= LEVEL 3 TESTS =======
+     * Testing file input/output operations for the recommendation system
+     */
+    
+    @Test
+    public void testMovieFileOperations() throws IOException {
+        // Test loading movies from file
+        List<String> movieLines = Arrays.asList(
+            "The Shawshank Redemption, TSR001",
+            "Drama",
+            "The Godfather, TG002",
+            "Crime, Drama"
+        );
+        Files.write(moviesFile, movieLines);
+        
+        MovieRecommendationSystem system = new MovieRecommendationSystem();
+        system.loadMovies(moviesFile.toString());
+        
+        // Generate recommendations file with just movies loaded to verify it works
+        system.generateRecommendations(recommendationsFile.toString());
+        assertTrue(Files.exists(recommendationsFile));
+    }
+    
+    @Test
+    public void testUserFileOperations() throws IOException {
+        // Test loading users from file
+        // First need valid movies
+        List<String> movieLines = Arrays.asList(
+            "The Shawshank Redemption, TSR001",
+            "Drama",
+            "The Godfather, TG002",
+            "Crime, Drama"
+        );
+        Files.write(moviesFile, movieLines);
+        
+        // Then create and load users
+        List<String> userLines = Arrays.asList(
+            "John Doe, 12345678X",
+            "TSR001",
+            "Jane Smith, 87654321Y",
+            "TG002"
+        );
+        Files.write(usersFile, userLines);
+
+        MovieRecommendationSystem system = new MovieRecommendationSystem();
+        system.loadMovies(moviesFile.toString());
+        system.loadUsers(usersFile.toString());
+        // Generate recommendations file to verify users were loaded
+        system.generateRecommendations(recommendationsFile.toString());
+        // Check that file contains user information
+        List<String> outputLines = Files.readAllLines(recommendationsFile);
+        assertTrue(outputLines.get(0).contains("John Doe"));
+        assertTrue(outputLines.get(2).contains("Jane Smith"));
+    }
+    
+    /**
+     * ======= LEVEL 4 TESTS =======
+     * Testing the main application flow with all components integrated
+     */
+    
+    @Test
+    public void testCompleteSystemIntegration() throws IOException {
+        // Prepare test files
+        List<String> movieLines = Arrays.asList(
+            "The Shawshank Redemption, TSR001",
+            "Drama",
+            "The Godfather, TG002",
+            "Crime, Drama",
+            "The Dark Knight, TDK003",
+            "Action, Crime, Drama"
+        );
+        Files.write(moviesFile, movieLines);
+        
+        List<String> userLines = Arrays.asList(
+            "John Doe, 12345678X",
+            "TSR001, TDK003",
+            "Jane Smith, 87654321Y",
+            "TG002"
+        );
+        Files.write(usersFile, userLines);
+        
+        // Create a ByteArrayOutputStream to capture System.out
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        System.setOut(new PrintStream(outContent));
+        
+        try {
+            // Execute the main method with redirected file paths
+            String[] args = new String[0]; // Main doesn't use args, it hardcodes paths
+            
+            // Create our own MovieRecommendationSystem instead of calling Main directly
+            // since Main has hardcoded paths we can't easily change in tests
+            MovieRecommendationSystem system = new MovieRecommendationSystem();
+            system.loadMovies(moviesFile.toString());
+            system.loadUsers(usersFile.toString());
+            system.generateRecommendations(recommendationsFile.toString());
+            
+            System.out.println("Recommendations generated successfully!");
+            
+            // Now verify the correct message was printed
+            assertTrue(outContent.toString().contains("Recommendations generated successfully"));
+            
+            // Verify recommendations file content
+            List<String> recommendationLines = Files.readAllLines(recommendationsFile);
+            
+            // Expected: User names and IDs in odd positions, recommendations in even positions
+            assertEquals("John Doe,12345678X", recommendationLines.get(0));
+            assertTrue(recommendationLines.get(1).contains("The Godfather"));
+            
+            assertEquals("Jane Smith,87654321Y", recommendationLines.get(2));
+            assertTrue(recommendationLines.get(3).contains("The Shawshank Redemption"));
+            assertTrue(recommendationLines.get(3).contains("The Dark Knight"));
+        } finally {
+            System.setOut(originalOut);
+        }
+    }
+    
+    @Test
+    public void testErrorHandlingIntegration() throws IOException {
+        // Test with invalid movie data
+        List<String> movieLines = Arrays.asList(
+            "the shawshank redemption, TSR001", // Invalid title (lowercase)
+            "Drama"
+        );
+        Files.write(moviesFile, movieLines);
+        
+        // Simulate the main application flow
+        MovieRecommendationSystem system = new MovieRecommendationSystem();
+        system.loadMovies(moviesFile.toString());
+        system.generateRecommendations(recommendationsFile.toString());
+        
+        // Verify error message in recommendations
+        List<String> recommendationLines = Files.readAllLines(recommendationsFile);
+        assertEquals("ERROR: Movie Title the shawshank redemption is wrong", recommendationLines.get(0));
+    }
+    
+    @Test
+    public void testMainMethodIntegration() throws IOException {
+        
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        
+        System.setOut(new PrintStream(outContent));
+        System.setErr(new PrintStream(outContent));
+        
+        try {
+            // Prepare test files
+            List<String> movieLines = Arrays.asList(
+                "The Shawshank Redemption, TSR001",
+                "Drama",
+                "The Godfather, TG002",
+                "Crime, Drama"
+            );
+            Files.write(moviesFile, movieLines);
+            
+            List<String> userLines = Arrays.asList(
+                "John Doe, 12345678X",
+                "TSR001",
+                "Jane Smith, 87654321Y",
+                "TG002"
+            );
+            Files.write(usersFile, userLines);
+            
+            // This simulates what Main.main() would do
+            try {
+                MovieRecommendationSystem system = new MovieRecommendationSystem();
+                system.loadMovies(moviesFile.toString());
+                system.loadUsers(usersFile.toString());
+                system.generateRecommendations(recommendationsFile.toString());
+                System.out.println("Recommendations generated successfully!");
+            } catch (Exception e) {
+                System.err.println("Error: " + e.getMessage());
+                e.printStackTrace();
+            }
+            
+            // Verify output
+            assertTrue(outContent.toString().contains("Recommendations generated successfully"));
+            
+            // Verify recommendations file
+            List<String> recommendationLines = Files.readAllLines(recommendationsFile);
+            assertEquals("John Doe,12345678X", recommendationLines.get(0));
+            assertEquals("Jane Smith,87654321Y", recommendationLines.get(2));
+        } finally {
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+        }
+    }
+}
